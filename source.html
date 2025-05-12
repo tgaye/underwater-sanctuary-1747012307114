@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Underwater Sanctuary</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #0a192f;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            font-family: Arial, sans-serif;
+       
+ }
+        #canvas-container {
+            width: 100%;
+            max-width: 1200px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: center;
+            position: relative;
+        }
+        #instructions {
+            position: absolute;
+            bottom: 20px;
+            color: rgba(255, 255, 255, 0.5);
+            font-size: 14px;
+            text-align: center;
+            width: 100%;
+            pointer-events: none;
+            transition: opacity 2s;
+        }
+    </style>
+
+<base target="_self">
+
+
+  <button id="fs-toggle">
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+      <path d="M1.5 1H6v1.5H3v3H1.5V1zM10 1h4.5v4.5H13v-3h-3V1zM1.5 10.5H3v3h3V15H1.5v-4.5zM13 13.5v-3h1.5V15H10v-1.5h3z"></path>
+    </svg>
+  </button>
+    <div id="canvas-container">
+        <div id="instructions">Move your cursor to create currents • Click to spawn jellyfish</div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/p5@1.8.0/lib/p5.js"></script>
+    <script>
+        const sketch = (p) => {
+            let jellyfish = [];
+            let particles = [];
+            let flowField = [];
+            let cols, rows;
+            let resolution = 20;
+            let zoff = 0;
+            let bgGradient;
+            let lastClickTime = 0;
+            let instructions;
+
+            p.setup = () => {
+                let canvas = p.createCanvas(p.min(p.windowWidth, 1200), p.min(p.windowHeight, 800));
+                canvas.parent('canvas-container');
+                p.colorMode(p.HSB, 360, 100, 100, 1);
+                
+                cols = p.floor(p.width / resolution);
+                rows = p.floor(p.height / resolution);
+                
+                createFlowField();
+                createBackgroundGradient();
+                
+                for (let i = 0; i < 5; i++) {
+                    jellyfish.push(new Jellyfish(p.random(p.width), p.random(p.height * 0.2, p.height * 0.8)));
+                }
+                
+                for (let i = 0; i < 200; i++) {
+                    particles.push(new Particle());
+                }
+                
+                instructions = p.select('#instructions');
+                setTimeout(() => { instructions.style('opacity', '0'); }, 5000);
+            };
+
+            p.draw = () => {
+                
+                updateFlowField();
+                
+                // Draw particles
+                for (let particle of particles) {
+                    particle.update();
+                    particle.display();
+                }
+                
+                // Draw and update jellyfish
+                for (let j of jellyfish) {
+                    j.update();
+                    j.display();
+                }
+                
+                // Limit jellyfish count
+                if (jellyfish.length > 15) {
+                    jellyfish.shift();
+                }
+            };
+
+            function createBackgroundGradient() {
+                bgGradient = p.createGraphics(p.width, p.height);
+                for (let y = 0; y < p.height; y++) {
+                    let inter = p.map(y, 0, p.height, 0, 1);
+                    let c = p.lerpColor(p.color(210, 90, 20), p.color(240, 90, 10), inter);
+                    bgGradient.stroke(c);
+                    bgGradient.line(0, y, p.width, y);
+                }
+            }
+
+            function createFlowField() {
+                flowField = new Array(cols * rows);
+            }
+
+            function updateFlowField() {
+                let xoff = 0;
+                for (let x = 0; x < cols; x++) {
+                    let yoff = 0;
+                    for (let y = 0; y < rows; y++) {
+                        let index = x + y * cols;
+                        let angle = p.noise(xoff, yoff, zoff) * p.TWO_PI * 4;
+                        let v = p5.Vector.fromAngle(angle);
+                        v.setMag(0.1);
+                        flowField[index] = v;
+                        yoff += 0.1;
+                    }
+                    xoff += 0.1;
+                }
+                zoff += 0.01;
+            }
+
+            class Jellyfish {
+                constructor(x, y) {
+                    this.pos = p.createVector(x, y);
+                    this.vel = p.createVector(p.random(-0.5, 0.5), p.random(0.2, 0.8));
+                    this.acc = p.createVector();
+                    this.tentacles = [];
+                    this.size = p.random(20, 40);
+                    this.hue = p.random(300, 360);
+                    this.saturation = p.random(60, 90);
+                    this.brightness = p.random(80, 100);
+                    this.pulseSpeed = p.random(0.02, 0.05);
+                    this.pulsePhase = p.random(p.TWO_PI);
+                    this.tentacleCount = p.floor(p.random(5, 9));
+                    
+                    for (let i = 0; i < this.tentacleCount; i++) {
+                        this.tentacles.push({
+                            length: p.random(this.size * 1.5, this.size * 3),
+                            segments: p.floor(p.random(8, 15)),
+                            noiseOffset: p.random(1000)
+                        });
+                    }
+                }
+
+                update() {
+                    // Apply flow field
+                    let x = p.floor(this.pos.x / resolution);
+                    let y = p.floor(this.pos.y / resolution);
+                    x = p.constrain(x, 0, cols - 1);
+                    y = p.constrain(y, 0, rows - 1);
+                    let index = x + y * cols;
+                    let force = flowField[index].copy();
+                    
+                    // Add mouse influence
+                    let mouseDist = p.dist(this.pos.x, this.pos.y, p.mouseX, p.mouseY);
+                    if (mouseDist < 150) {
+                        let mouseForce = p.createVector(p.mouseX - p.pmouseX, p.mouseY - p.pmouseY);
+                        mouseForce.mult(0.5);
+                        force.add(mouseForce);
+                    }
+                    
+                    force.limit(0.5);
+                    this.acc.add(force);
+                    
+                    this.vel.add(this.acc);
+                    this.vel.limit(2);
+                    this.pos.add(this.vel);
+                    this.acc.mult(0);
+                    
+                    // Boundary check
+                    if (this.pos.x < -this.size) this.pos.x = p.width + this.size;
+                    if (this.pos.x > p.width + this.size) this.pos.x = -this.size;
+                    if (this.pos.y < -this.size * 2) this.pos.y = p.height + this.size;
+                    if (this.pos.y > p.height + this.size) this.pos.y = -this.size * 2;
+                    
+                    // Update pulse
+                    this.pulsePhase += this.pulseSpeed;
+                }
+
+                display() {
+                    p.push();
+                    p.translate(this.pos.x, this.pos.y);
+                    
+                    // Draw glow
+                    let pulseSize = this.size * (1 + 0.2 * p.sin(this.pulsePhase));
+                    let glowAlpha = 0.3 + 0.2 * p.sin(this.pulsePhase * 1.5);
+                    p.fill(this.hue, this.saturation * 0.7, this.brightness, glowAlpha);
+                    p.noStroke();
+                    p.ellipse(0, 0, pulseSize * 2.5, pulseSize * 2.5);
+                    
+                    // Draw body
+                    p.fill(this.hue, this.saturation, this.brightness);
+                    p.ellipse(0, 0, pulseSize, pulseSize * 0.8);
+                    
+                    // Draw tentacles
+                    p.noFill();
+                    for (let i = 0; i < this.tentacles.length; i++) {
+                        let t = this.tentacles[i];
+                        let angle = p.map(i, 0, this.tentacles.length - 1, -p.PI/3, p.PI/3);
+                        
+                        p.beginShape();
+                        p.stroke(this.hue, this.saturation, this.brightness * 0.8, 0.8);
+                        p.strokeWeight(2);
+                        
+                        for (let j = 0; j <= t.segments; j++) {
+                            let segmentRatio = j / t.segments;
+                            let segmentLength = segmentRatio * t.length;
+                            let segmentWidth = p.map(segmentRatio, 0, 1, 3, 0.5);
+                            
+                            let noiseX = p.noise(t.noiseOffset + j * 0.2, this.pulsePhase * 0.5) * 20 - 10;
+                            let noiseY = segmentLength + p.noise(t.noiseOffset + j * 0.3, this.pulsePhase) * 20;
+                            
+                            let x = p.sin(angle) * noiseX;
+                            let y = p.cos(angle) * noiseY;
+                            
+                            p.curveVertex(x, y);
+                            
+                            if (j === 0) p.curveVertex(x, y); // Duplicate first point for curve
+                            if (j === t.segments) p.curveVertex(x, y); // Duplicate last point for curve
+                        }
+                        p.endShape();
+                    }
+                    p.pop();
+                }
+            }
+
+            class Particle {
+                constructor() {
+                    this.reset();
+                    this.z = p.random(0.5, 3); // Depth factor
+                }
+
+                reset() {
+                    this.pos = p.createVector(p.random(p.width), p.random(p.height));
+                    this.vel = p.createVector(0, p.random(0.1, 0.5) * this.z);
+                    this.size = p.random(1, 3) * this.z;
+                    this.alpha = p.random(0.2, 0.8);
+                    this.hue = p.random(180, 220);
+                    this.saturation = p.random(30, 70);
+                    this.brightness = p.random(70, 90);
+                    this.noiseOffset = p.random(1000);
+                }
+
+                update() {
+                    // Apply flow field
+                    let x = p.floor(this.pos.x / resolution);
+                    let y = p.floor(this.pos.y / resolution);
+                    x = p.constrain(x, 0, cols - 1);
+                    y = p.constrain(y, 0, rows - 1);
+                    let index = x + y * cols;
+                    let force = flowField[index].copy();
+                    force.mult(0.5 * this.z);
+                    this.vel.add(force);
+                    
+                    // Add slight horizontal movement
+                    this.vel.x += p.noise(this.noiseOffset + p.frameCount * 0.01) * 0.2 - 0.1;
+                    
+                    this.vel.limit(1 * this.z);
+                    this.pos.add(this.vel);
+                    this.noiseOffset += 0.01;
+                    
+                    // Reset if out of bounds
+                    if (this.pos.y > p.height + 10 || this.pos.x < -10 || this.pos.x > p.width + 10) {
+                        this.reset();
+                        this.pos.y = p.random(-50, -10);
+                    }
+                }
+
+                display() {
+                    p.noStroke();
+                    p.fill(this.hue, this.saturation, this.brightness, this.alpha);
+                    p.ellipse(this.pos.x, this.pos.y, this.size);
+                }
+            }
+
+            p.mousePressed = () => {
+                let now = p.millis();
+                if (now - lastClickTime > 300) { // Debounce clicks
+                    jellyfish.push(new Jellyfish(p.mouseX, p.mouseY));
+                    createBubbleBurst(p.mouseX, p.mouseY);
+                    lastClickTime = now;
+                    
+                    // Show instructions briefly
+                    instructions.style('opacity', '0.5');
+                    setTimeout(() => { instructions.style('opacity', '0'); }, 2000);
+                }
+            };
+
+            function createBubbleBurst(x, y) {
+                for (let i = 0; i < 20; i++) {
+                    let bubble = {
+                        pos: p.createVector(x, y),
+                        vel: p.createVector(p.random(-2, 2), p.random(-3, -1)),
+                        size: p.random(3, 8),
+                        life: p.random(30, 60),
+                        alpha: p.random(0.4, 0.8)
+                    };
+                    
+                    let updateBubble = () => {
+                        bubble.vel.y *= 0.98;
+                        bubble.vel.x *= 0.98;
+                        bubble.pos.add(bubble.vel);
+                        bubble.life--;
+                        bubble.alpha *= 0.98;
+                        
+                        if (bubble.life <= 0) return false;
+                        return true;
+                    };
+                    
+                    let displayBubble = () => {
+                        p.noStroke();
+                        p.fill(200, 50, 100, bubble.alpha);
+                        p.ellipse(bubble.pos.x, bubble.pos.y, bubble.size);
+                    };
+                    
+                    particles.push({
+                        update: updateBubble,
+                        display: displayBubble
+                    });
+                }
+            }
+
+            p.windowResized = () => {
+                p.resizeCanvas(p.min(p.windowWidth, 1200), p.min(p.windowHeight, 800));
+                createBackgroundGradient();
+                cols = p.floor(p.width / resolution);
+                rows = p.floor(p.height / resolution);
+                createFlowField();
+            };
+        };
+
+        new p5(sketch);
+    
+  // Fullscreen toggle
+  document.getElementById('fs-toggle').addEventListener('click', function() {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen().catch(err => {
+        console.log('Fullscreen request failed: ', err);
+      });
+    } else {
+      if (document.exitFullscreen) {
+        document.exitFullscreen();
+      }
+    }
+  });
+  
+  // Hide fullscreen button after inactivity
+  const fsButton = document.getElementById('fs-toggle');
+  let timeout;
+  document.addEventListener('mousemove', function() {
+    fsButton.style.opacity = '0.3';
+    clearTimeout(timeout);
+    timeout = setTimeout(() => {
+      fsButton.style.opacity = '0';
+    }, 2000);
+  });
+  </script>
+
+              
+          
+                
+          
+              
